@@ -1,4 +1,5 @@
 #!/bin/bash
+# trying to get the old behavior of the geoiplookup tools of older versions
 
 IP=$1
 
