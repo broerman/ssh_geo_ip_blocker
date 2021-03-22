@@ -1,0 +1,86 @@
+#!/bin/bash
+
+IP=$1
+
+# Space separated list of allowd country codes
+ALLOWED_COUNTRIES="{{ allowed_countries|join(' ') }}"
+
+# File containing allowed host IP addresses - must be writable by all callers
+GEO_WHITELIST=/var/lib/tcpwrap/hosts_whitelist
+ALLOWED_FILE=/var/lib/tcpwrap/hosts_allowed
+
+# Log file - must be writable by all callers that should log
+LOG_FILE=/var/log/geo_check.log
+
+# Syslog priorities
+ACCEPT_PRIORITY=auth.info
+DENY_PRIORITY=auth.warning
+
+is_whitelisted () {
+    local IP=$1
+    local RC=1
+    if [ -r $GEO_WHITELIST ] ; then
+        for W in $( cat $GEO_WHITELIST ); do
+            if grep -q $W <<< $IP ; then
+		RC=0
+                break
+	    fi
+        done
+    fi
+    return $RC
+}
+
+# Attempt to create the allowed files if missing; world writable
+umask 111
+[ -f ${ALLOWED_FILE:-''} ] || touch ${ALLOWED_FILE}
+[ -f ${LOG_FILE:-''} ] || touch ${LOG_FILE}
+
+# Lookup country and country code
+case $IP in
+    [0-9]*|*:*)
+        LOC=$(/usr/local/bin/geoiplookup ${IP} | head -1)
+        COUNTRY=${LOC##*, }
+        CCODE=${LOC%%,*}
+        CCODE=${CCODE##* }
+
+        ;;
+    *)
+        echo usage $1 ip_addr
+        exit 1
+        ;;
+esac
+
+if is_whitelisted $IP ; then
+    MSG="$IP whitelisted"
+    LOG_PRIORITY=${ACCEPT_PRIORITY}
+    RC=0
+else
+    # Set message and status - Add to approved IP address, if appropriate
+    if $( echo ${ALLOWED_COUNTRIES} | grep -q ${CCODE:-xx}); then
+        if [ -w ${ALLOWED_FILE:-''} ]; then
+            grep -q $IP ${ALLOWED_FILE} || echo $IP >> ${ALLOWED_FILE}
+            MSG="$IP allowed ${CCODE} - ${COUNTRY}"
+        else
+            MSG="$IP would allow ${CCODE} - ${COUNTRY}"
+        fi
+        LOG_PRIORITY=${ACCEPT_PRIORITY}
+        RC=0
+    else
+        MSG="$IP denied ${CCODE} - ${COUNTRY}"
+        LOG_PRIORITY=${DENY_PRIORITY}
+        RC=1
+    fi
+
+fi
+
+# Log, report and exit with status
+if tty -s ; then
+    echo ${MSG}
+else
+    [ -w $LOG_FILE ] && echo $(date -Iseconds) - ${MSG} >> ${LOG_FILE}
+    [ -z $LOG_PRIORITY ] || logger -p ${LOG_PRIORITY} -t geo_check --id ${2}${2:+: }${MSG}
+fi
+
+exit ${RC}
+
+# EOF

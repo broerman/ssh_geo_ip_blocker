@@ -1,0 +1,116 @@
+---
+- name: deploy geoip tcp-wrapper for sshd
+  hosts: all
+  become: true
+  vars:
+    geoip_version: "4.6.0"
+    machine: "linux"
+    allowed_countries:
+      - DE
+      - CH
+      - AU
+    host_whitelist:
+      - 127.0.0.1
+      - ::1
+
+  vars_files:
+    # You have to register at maxmind.com and fill license.yaml with content
+    # AccountID: <id>
+    # LicenseKey: <key>
+    - vars/license.yml
+  tasks:
+
+    # maxmind only knows armv6 arm64 amd64 or 386 for linux
+    - name: Get architecture
+      shell: uname -m | sed -r -e "s/hf$/v6/g" -e "s/^armv7\w+/armv6/g" -e  "s/^armv6\w+/armv6/g" -e "s/x86_64/amd64/g"
+      register: arch
+
+    - name: Print architecture
+      debug:
+        msg: "arch.stdout: {{ arch.stdout }}"
+
+    - name: install dependencies mmdb-bin and jp
+      apt:
+        pkg:
+          - mmdb-bin
+          - jq
+
+    - name: Download tarball
+      unarchive:
+        src: https://github.com/maxmind/geoipupdate/releases/download/v{{ geoip_version }}/geoipupdate_{{ geoip_version }}_{{ machine }}_{{ arch.stdout }}.tar.gz
+        dest: "/tmp"
+        remote_src: true
+
+    - name: Copy geoipupdate to /usr/local/bin
+      copy:
+        src: /tmp/geoipupdate_{{ geoip_version }}_{{ machine }}_{{ arch.stdout }}/geoipupdate
+        dest: /usr/local/bin/geoipupdate
+        owner: root
+        group: root
+        mode: '0755'
+        remote_src: true
+
+    - name: Create directories
+      file:
+        path: "{{ item }}"
+        state: directory
+        mode: '0755'
+      loop:
+        - /usr/local/etc
+        - /usr/local/share/GeoIP
+        - /var/lib/tcpwrap
+
+    - name: Create minimal hosts_whitelist
+      copy:
+        dest: /var/lib/tcpwrap/hosts_whitelist
+        content: |
+          {% for host in host_whitelist %}
+          {{ host }}
+          {% endfor %}
+
+    - name: copy Geoip.conf
+      template:
+        src: GeoIP.conf.j2
+        dest: /usr/local/etc/GeoIP.conf
+
+    - name: Run geoipupdate
+      command: /usr/local/bin/geoipupdate
+
+    - name: copy geoiplookup
+      copy:
+        src: geoiplookup
+        dest: /usr/local/bin/geoiplookup
+        owner: root
+        group: root
+        mode: u=rwx,g=rx,o=rx
+
+    - name: copy geo_check
+      template:
+        src: geo_check.j2
+        dest: /usr/local/bin/geo_check
+        owner: root
+        group: root
+        mode: u=rwx,g=rx,o=rx
+
+    - name: Write /etc/hosts.allow
+      blockinfile:
+        path: /etc/hosts.allow
+        block: |
+            sshd: 10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,LOCAL
+            sshd: ALL : aclexec /usr/local/bin/geo_check %a
+        create: true
+
+    - name: Write /etc/hosts.deny
+      blockinfile:
+        path: /etc/hosts.deny
+        block: |
+            sshd: ALL
+        create: true
+
+    - name: Configure crontab to update weekly
+      copy:
+        dest: /etc/cron.d/geoipupdate
+        content: |
+          PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
+          MAILTO=root
+          10 4 * * 1 root /usr/local/bin/geoipupdate

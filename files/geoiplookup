@@ -1,0 +1,11 @@
+#!/bin/bash
+
+IP=$1
+
+JSON=$( mmdblookup --file /usr/share/GeoIP/GeoLite2-Country.mmdb  --ip $IP country 2>/dev/null | sed "s/<.*>/,/g" | tr -d "\n " | sed "s/,}/}/g" )
+if [  "$JSON" ] ; then
+        echo $JSON | jq -r '"GeoIP Country Edition: \(.iso_code), \(.names.en)"'
+else
+        echo "GeoIP Country Edition: IP Address not found"
+fi
+
