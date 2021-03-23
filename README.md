@@ -5,7 +5,7 @@ This playbook installs geoipupdate from maxmind and configures tcpwrapper to blo
 
 ##### Preparations 
 
-edit hosts file 
+edit `./hosts`  file 
 
 ajust **geoip_version** and other **vars** in deploy.yaml
 
@@ -15,6 +15,14 @@ Deploy to server1
 
 ```bash
 ansible-playbook -i hosts deploy.yaml --limit server1
+```
+##### Check
+
+Check if it works
+
+```
+# geoiplookup 8.8.8.8
+GeoIP Country Edition: US, UnitedStates
 ```
 
 ##### Monitoring 
