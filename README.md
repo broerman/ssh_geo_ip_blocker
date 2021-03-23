@@ -5,6 +5,9 @@ This playbook installs geoipupdate from maxmind and configures tcpwrapper to blo
 
 ##### Preparations 
 
+register at https://www.maxmind.com/en/geolite2/signup
+
+
 edit `./hosts`  file 
 
 ajust **geoip_version** and other **vars** in deploy.yaml
