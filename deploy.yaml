@@ -3,7 +3,7 @@
   hosts: all
   become: true
   vars:
-    geoip_version: "4.6.0"
+    geoip_version: "4.8.0"
     machine: "linux"
     allowed_countries:
       - DE
